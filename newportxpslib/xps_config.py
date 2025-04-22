@@ -87,9 +87,6 @@ def backup_xps_config(xps):
 def generate_config(xps, output_file=Path("config") / "xps_hardware.json"):
     print("🛠 Generating config from live XPS system...")
     config = {
-        "ip": CONFIG["XPS_IP"],
-        "username": CONFIG["USERNAME"],
-        "password": CONFIG["PASSWORD"],
         "groups": list(xps.groups.keys()),
         "stages": [],
         "labels": [],
