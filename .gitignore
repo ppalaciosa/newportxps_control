@@ -179,5 +179,9 @@ pyrightconfig.json
 
 # Ignore generated configs if needed
 config/xps_hardware.json
+config/xps_connection_parameters.json
+
+# Others
+xps_status_report.txt
 
 

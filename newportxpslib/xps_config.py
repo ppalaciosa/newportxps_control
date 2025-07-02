@@ -10,11 +10,28 @@ CONFIG = {
     "GROUPS": [],
     "STAGES": [],
     "LABELS": [],
+    "ZERO_OFFSETS":{},
     "POSITION_TOL": 0.1,
     "WAIT_DELAY": 0.5,
     "MAX_WAIT_TIME": 10,
-    "RESET_POSITION": 0.0
+    "RESET_POSITION": 0.0,
 }
+
+# New: Store the currently active stages for this instance
+ACTIVE_STAGES = None
+
+def set_active_stages(stages):
+    """Set which stages will be operated in this instance."""
+    global ACTIVE_STAGES
+    ACTIVE_STAGES = stages
+
+def get_active_stages():
+    """Return the list of active stages for this instance."""
+    global ACTIVE_STAGES
+    if ACTIVE_STAGES is None:
+        return CONFIG["STAGES"]
+    return ACTIVE_STAGES
+
 
 def load_user_credentials(user_file=None):
     # Default to config/xps_connection_parameters.json with cross-platform support
@@ -25,9 +42,9 @@ def load_user_credentials(user_file=None):
         print(f"🚫 Missing connection file: '{user_file}' not found.")
         print("👉 Create the file manually with your XPS login info.")
         print("📌 Example:\n", json.dumps({
-            "ip": "192.168.254.254",
+            "ip": "10.0.0.1",
             "username": "username",
-            "password": "Administrator"
+            "password": "password"
         }, indent=4))
         sys.exit(1)
 
@@ -48,6 +65,10 @@ def load_user_credentials(user_file=None):
         sys.exit(1)
 
 def load_full_config():
+    """
+    Loads user credentials and hardware configuration including
+    zero offsets for stages, motion parameters, and groups.
+    """
     load_user_credentials()
 
     hardware_file = Path("config") / "xps_hardware.json"
@@ -62,6 +83,14 @@ def load_full_config():
             CONFIG["GROUPS"] = hw.get("groups", [])
             CONFIG["STAGES"] = hw.get("stages", [])
             CONFIG["LABELS"] = hw.get("labels", CONFIG["STAGES"])
+
+            # Load zero offsets per stage; default to 0.0 if missing for any stage
+            zero_offsets_raw = hw.get("zero_offsets", {})
+            CONFIG["ZERO_OFFSETS"] = {
+                stage: float(zero_offsets_raw.get(stage, 0.0))
+                for stage in CONFIG["STAGES"]
+            }
+
             motion = hw.get("motion", {})
             CONFIG["POSITION_TOL"] = motion.get("position_tolerance", 0.1)
             CONFIG["WAIT_DELAY"] = motion.get("wait_delay", 0.5)
@@ -90,6 +119,7 @@ def generate_config(xps, output_file=Path("config") / "xps_hardware.json"):
         "groups": list(xps.groups.keys()),
         "stages": [],
         "labels": [],
+        "zero_offsets": {},   # New field added for zero offsets; empty by default
         "motion": {
             "position_tolerance": CONFIG["POSITION_TOL"],
             "wait_delay": CONFIG["WAIT_DELAY"],
@@ -103,6 +133,8 @@ def generate_config(xps, output_file=Path("config") / "xps_hardware.json"):
             stage_name = f"{group}.{pos}"
             config["stages"].append(stage_name)
             config["labels"].append(stage_name)
+            config["zero_offsets"][stage_name] = 0.0  # Default offset zero on generation
+
 
     with open(output_file, "w") as f:
         json.dump(config, f, indent=4)
