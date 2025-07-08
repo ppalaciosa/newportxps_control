@@ -35,8 +35,9 @@ def get_active_stages():
 
 def load_user_credentials(user_file=None):
     # Default to config/xps_connection_parameters.json with cross-platform support
+    THIS_DIR = Path(__file__).parent.parent  # <-- points to newportxps_control/
     if user_file is None:
-        user_file = Path("config") / "xps_connection_parameters.json"
+        user_file = THIS_DIR / "config" / "xps_connection_parameters.json"
 
     if not os.path.exists(user_file):
         print(f"🚫 Missing connection file: '{user_file}' not found.")
@@ -70,8 +71,8 @@ def load_full_config():
     zero offsets for stages, motion parameters, and groups.
     """
     load_user_credentials()
-
-    hardware_file = Path("config") / "xps_hardware.json"
+    THIS_DIR = Path(__file__).parent.parent  # <-- points to newportxps_control/
+    hardware_file = THIS_DIR / "config" / "xps_hardware.json"
     if not os.path.exists(hardware_file):
         print(f"🚫 Missing hardware file: '{hardware_file}' not found.")
         print("👉 Generate it using --generate-config.")

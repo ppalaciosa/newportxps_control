@@ -47,11 +47,49 @@ def parse_args():
                         help="Print the current positions of the selected stages and exit")
     parser.add_argument("--verbose", action="store_true", 
                         help="Enable detailed output for initialization and status")
-    parser.add_argument("--skip-prep", action="store_true", 
-                        help="Skip ALL group initialization, homing, and enabling")
+    #parser.add_argument("--skip-prep", action="store_true", 
+                        #help="Skip ALL group initialization, homing, and enabling")
+    parser.add_argument("--set-zero", action="store_true",
+    help="Set the current position of all selected stages as their new zero offset in xps_hardware.json")
 
 
     return parser.parse_args()
+
+def set_zero_for_stages(selected_stages=None):
+    """
+    Set the current position of all (or selected) stages as their new zero offset in xps_hardware.json.
+    """
+    import json
+    from newportxpslib.xps_config import CONFIG, load_full_config
+    from newportxps import NewportXPS
+
+    load_full_config()
+    stages = selected_stages or CONFIG["STAGES"]
+
+    print(f"🔌 Connecting to XPS at {CONFIG['XPS_IP']} to set zero offset(s)...")
+    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
+
+    zero_offsets = {}
+    for stage in stages:
+        pos = xps.get_stage_position(stage)
+        print(f"  {stage}: Current position {pos:.6f} set as new zero.")
+        zero_offsets[stage] = pos
+
+    # Load and update hardware config
+    hwfile = "config/xps_hardware.json"
+    with open(hwfile, "r") as f:
+        hw = json.load(f)
+    hw["zero_offsets"] = hw.get("zero_offsets", {})
+    hw["zero_offsets"].update(zero_offsets)
+    with open(hwfile, "w") as f:
+        json.dump(hw, f, indent=4)
+    print(f"✅ Zero offsets updated in {hwfile}.")
+
+    try:
+        xps.ftpconn.close()
+    except Exception:
+        pass
+
 
 def main():
     args = parse_args()
@@ -86,6 +124,12 @@ def main():
         else:
             set_active_stages(CONFIG["STAGES"])
         # ---- End active stages selection ----
+
+        if args.set_zero:
+            from newportxpslib.xps_config import get_active_stages
+            set_zero_for_stages(get_active_stages())
+            return
+
 
         # Handle --get-positions
         if args.get_positions:
@@ -195,7 +239,7 @@ def main():
         print("🧹 Cleaning up and exiting...")
 
 # ---- Convenience for Python API/interactive use ----
-def move_motors(*positions):
+def move_motors(*positions, skip_prep=False, verbose=False):
     """
     Moves Newport XPS motors to the given absolute positions (in active stages order).
 
@@ -220,9 +264,17 @@ def move_motors(*positions):
     xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
     print("✅ Connected.")
 
-    initialize_groups(xps, verbose=args.verbose)
-    home_groups(xps, force_home=False, verbose=args.verbose)
-    enable_groups(xps, verbose=args.verbose)
+    if skip_prep:
+        if verbose:
+            print("⚡ Skipping ALL motion preparation! (skip_prep=True)")
+    else:
+        if all_groups_ready_and_enabled(xps):
+            if verbose:
+                print("🚀 All groups referenced and enabled. Skipping init/home/enable steps.")
+        else:
+            initialize_groups(xps, verbose=verbose)
+            home_groups(xps, force_home=False, verbose=verbose)
+            enable_groups(xps, verbose=verbose)
 
     print(f"➡ Moving to: {positions}")
     for stage, pos in zip(stages, positions):

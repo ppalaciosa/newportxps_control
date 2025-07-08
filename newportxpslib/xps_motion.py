@@ -164,6 +164,19 @@ def reset_stages(xps, verbose=False):
         except Exception as e:
             print(f"❌ Failed to reset {stage}: {e}")
 
+def kill_all_groups(xps, verbose=False):
+    """
+    Kill all groups: brings axes to 'Not Initialized' (safe shutdown).
+    """
+    for group in CONFIG["GROUPS"]:
+        try:
+            xps.kill_group(group)
+            if verbose:
+                print(f"🛑 Killed {group}")
+        except Exception as e:
+            if verbose:
+                print(f"❌ Error killing {group}: {e}")
+
 def wait_until_reached(xps, targets):
     start_time = time.time()
     stages = get_active_stages()
