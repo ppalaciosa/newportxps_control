@@ -46,7 +46,7 @@ Create `config/xps_connection_parameters.json`:
 ```
 If any field is left blank, the script will exit with a warning.
 
-### 3. Generate hardware map from controller
+### 4. Generate hardware map from controller
 You must run this step at least once for each new controller or after any hardware change:
 ```bash
 python newportxps_control.py --generate-config
@@ -101,12 +101,14 @@ python newportxps_control.py --get-positions
 
 ## **Motion File Example (`motion.txt`)**
 
+Each line specifies positions for each selected stage, **optionally followed by a label** (e.g., for logging or tracking):
+
 ```
-10, 0, 90, 5
+10, 0, 90, 5, first_move
 20, 5, 45, 0
 ```
-- Each line = a position for each selected stage (by order in config or `--stages`).
-
+- **Positions:** The first N values (comma-separated) are the target positions for each active stage.
+- **Label (optional):** Anything after the last numeric value is treated as a label/comment and will be logged if `--log` is used.
 ---
 
 ## 🧠 Python API Usage
