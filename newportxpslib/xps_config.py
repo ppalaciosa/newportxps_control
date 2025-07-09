@@ -91,6 +91,7 @@ def load_full_config(verbose=False):
                 stage: float(zero_offsets_raw.get(stage, 0.0))
                 for stage in CONFIG["STAGES"]
             }
+            print(f"ℹ️ Zero offsets loaded: {CONFIG['ZERO_OFFSETS']}")
 
             motion = hw.get("motion", {})
             CONFIG["POSITION_TOL"] = motion.get("position_tolerance", 0.1)
