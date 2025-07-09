@@ -1,30 +1,41 @@
+"""
+controller_interface.py
+
+Reusable API-like functions for controlling Newport XPS stages:
+- move_motors
+- get_positions
+- get_status
+
+All functions are stateless: connect, do the work, disconnect.
+"""
+from newportxpslib.xps_config import (
+    load_full_config, load_user_credentials, CONFIG, get_active_stages
+)
+from newportxpslib.xps_motion import (
+    initialize_groups, home_groups, enable_groups,
+    wait_until_reached_blocking, move_stage_with_offset,
+    all_groups_ready_and_enabled, get_stage_position_with_offset,
+)
+from newportxps import NewportXPS
+
 def move_motors(*positions, stages=None, skip_prep=False, verbose=False):
     """
     Moves Newport XPS motors to the given absolute positions.
 
     Arguments:
         positions: list of float values, one per stage.
-        stages: list of stage names, e.g. ["SP1.Pos1", "SP3.Pos3"]. If None, uses all active stages.
-        skip_prep: if True, skips group enable/init/homing steps (faster, but assumes system is ready).
+        stages: list of stage names, e.g. ["SP1.Pos1", "SP3.Pos3"]. 
+                If None, uses all active stages.
+        skip_prep: if True, skips group enable/init/homing steps 
+                            (faster, but assumes system is ready).
         verbose: if True, prints extra info.
     """
-    from newportxpslib.xps_config import (
-        load_full_config, load_user_credentials, CONFIG, 
-        set_active_stages,
-    )
-    from newportxpslib.xps_motion import (
-        initialize_groups, home_groups, enable_groups,
-        wait_until_reached_blocking, move_stage_with_offset,
-        get_active_stages, all_groups_ready_and_enabled,
-    )
-
-    from newportxps import NewportXPS
 
     # Load config and connect to XPS
     load_user_credentials()
     config = load_full_config()
     
-    # Accept both stage names and indices for the 'stages' argument
+    # Parse the stages argument (name or 1-based index)
     if stages is not None:
         chosen_stages = []
         for s in stages:
@@ -45,7 +56,9 @@ def move_motors(*positions, stages=None, skip_prep=False, verbose=False):
         raise ValueError(f"Expected {len(stages)} positions, got {len(positions)}.")
 
     print(f"🔌 Connecting to XPS at {CONFIG['XPS_IP']}...")
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
+    xps = NewportXPS(CONFIG["XPS_IP"], 
+                    username=CONFIG["USERNAME"], 
+                    password=CONFIG["PASSWORD"])
     print("✅ Connected.")
 
     if not skip_prep:
@@ -60,15 +73,22 @@ def move_motors(*positions, stages=None, skip_prep=False, verbose=False):
         if verbose:
             print("⚡ Skipping ALL motion preparation! (skip_prep=True)")
 
-    #print(f"➡ Moving to: {positions}")
     move_targets = ", ".join(f"{stage} → {pos}" for stage, pos in zip(chosen_stages, positions))
     print(f"➡ Moving: {move_targets}")
 
+    move_failed = False
     for stage, pos in zip(chosen_stages, positions):
         try:
             move_stage_with_offset(xps, stage, pos)
         except Exception as e:
             print(f"❌ Error moving {stage}: {e}")
+            move_failed = True
+
+    if move_failed:
+        print("❌ One or more move commands failed. Skipping wait for completion.")
+        try: xps.ftpconn.close()
+        except Exception: pass
+        return False
 
     reached = wait_until_reached_blocking(xps, positions, stages=chosen_stages)
     if reached:
@@ -80,19 +100,18 @@ def move_motors(*positions, stages=None, skip_prep=False, verbose=False):
         xps.ftpconn.close()
     except Exception:
         pass
+    return reached
 
 
 def get_positions(stages=None):
     """
     Returns a dictionary of current stage positions.
-    Format: { "stage_name": position }
-
-    By default, uses all stages (CONFIG["STAGES"]).
-    You can pass stage names (str) or stage numbers (int, 1-based).
+    Args:
+        stages: Optional list of stage names (str) or numbers (int, 1-based).
+                If None, uses all configured stages.
+    Returns:
+        dict: { "stage_name": position }
     """
-    from newportxpslib.xps_config import load_full_config, load_user_credentials, CONFIG, get_active_stages
-    from newportxpslib.xps_motion import get_stage_position_with_offset
-    from newportxps import NewportXPS
 
     load_user_credentials()
     config = load_full_config()
@@ -102,11 +121,12 @@ def get_positions(stages=None):
         chosen_stages = []
         for s in stages:
             if isinstance(s, int):
-                # 1-based for humans
+                # 1-based
                 if s <= 0 or s > len(CONFIG["STAGES"]):
                     raise ValueError(f"Stage number {s} out of range.")
                 chosen_stages.append(CONFIG["STAGES"][s - 1])
             elif isinstance(s, str):
+                # Name-based
                 if s not in CONFIG["STAGES"]:
                     raise ValueError(f"Stage name '{s}' not found.")
                 chosen_stages.append(s)
@@ -115,7 +135,9 @@ def get_positions(stages=None):
     else:
         chosen_stages = CONFIG["STAGES"]
 
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
+    xps = NewportXPS(CONFIG["XPS_IP"], 
+                    username=CONFIG["USERNAME"], 
+                    password=CONFIG["PASSWORD"])
     positions = {}
 
     for stage in chosen_stages:
@@ -138,12 +160,11 @@ def get_status():
     """
     Returns the full status report string from the XPS system.
     """
-    from newportxpslib.xps_config import load_user_credentials, CONFIG
-    from newportxps import NewportXPS
 
     load_user_credentials()
-
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
+    xps = NewportXPS(CONFIG["XPS_IP"], 
+                    username=CONFIG["USERNAME"], 
+                    password=CONFIG["PASSWORD"])
     report = xps.status_report()
 
     try:

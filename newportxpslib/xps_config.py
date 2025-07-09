@@ -65,7 +65,7 @@ def load_user_credentials(user_file=None):
         print(f"❌ Failed to load user credentials from '{user_file}': {e}")
         sys.exit(1)
 
-def load_full_config():
+def load_full_config(verbose=False):
     """
     Loads user credentials and hardware configuration including
     zero offsets for stages, motion parameters, and groups.
@@ -97,7 +97,8 @@ def load_full_config():
             CONFIG["WAIT_DELAY"] = motion.get("wait_delay", 0.5)
             CONFIG["MAX_WAIT_TIME"] = motion.get("max_wait_time", 10)
             CONFIG["RESET_POSITION"] = motion.get("reset_position", 0.0)
-        print("✅ Configuration loaded from xps_connection_parameters.json and xps_hardware.json\n")
+        if verbose:
+            print("✅ Configuration loaded from xps_connection_parameters.json and xps_hardware.json\n")
     except Exception as e:
         print(f"❌ Failed to load config: {e}")
         sys.exit(1)

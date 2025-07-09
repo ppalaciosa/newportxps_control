@@ -23,7 +23,7 @@ class XPSMotionSession:
         from newportxps import NewportXPS
         
         load_user_credentials()
-        self.config = load_full_config()
+        self.config = load_full_config(verbose=True)
         
         # ---- Interpret 'stages' (support names or 1-based numbers) ----
         if stages is not None:

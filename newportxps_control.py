@@ -1,30 +1,43 @@
+# newportxps_control.py
+"""
+CLI entry point for Newport XPS motion control.
+- Parses CLI args
+- Dispatches to reusable API functions in controller_interface, utils, etc.
+- Handles user-facing messages and file outputs only.
+
+All actual device control is handled by the imported modules.
+
+Dependencies:
+- newportxpslib (your custom library)
+- newportxps pip package
+"""
+
 import argparse
+import json
+
 from newportxps import NewportXPS
+from newportxpslib.controller_interface import move_motors, get_positions, get_status
+from newportxpslib.utils import parse_stages_arg, set_zero_for_stages
 from newportxpslib.xps_config import (
-    load_full_config,
-    save_status_report_to_file,
-    backup_xps_config,
-    generate_config,
-    load_user_credentials,
-    CONFIG,
-    set_active_stages,
+    load_full_config, save_status_report_to_file, backup_xps_config,
+    generate_config, load_user_credentials, CONFIG,
+    set_active_stages, get_active_stages,
 )
 from newportxpslib.xps_motion import (
-    print_motion_format,
-    load_position_combinations,
-    initialize_groups,
-    home_groups,
-    enable_groups,
-    wait_until_reached,
-    reset_stages,
-    execute_position_configurations,
-    get_active_stages,
-    all_groups_ready_and_enabled,
+    print_motion_format, load_position_combinations,
+    initialize_groups, home_groups, reset_stages,
+    execute_position_configurations, all_groups_ready_and_enabled,
 )
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Newport XPS Motion Control Tool")
+###############################
+# --- CLI ARGUMENTS PARSING ---
+###############################
 
+def parse_args():
+    """
+    Set up and return the CLI argument parser.
+    """
+    parser = argparse.ArgumentParser(description="Newport XPS Motion Control Tool")
     parser.add_argument("--file", type=str, default="motion.txt",
                         help="Path to file with motion configurations")
     parser.add_argument("--stages", type=str,
@@ -47,93 +60,40 @@ def parse_args():
                         help="Print the current positions of the selected stages and exit")
     parser.add_argument("--verbose", action="store_true", 
                         help="Enable detailed output for initialization and status")
-    #parser.add_argument("--skip-prep", action="store_true", 
-                        #help="Skip ALL group initialization, homing, and enabling")
     parser.add_argument("--set-zero", action="store_true",
-    help="Set the current position of all selected stages as their new zero offset in xps_hardware.json")
-
-
+        help="Set the current position of all selected stages as their new zero offset in xps_hardware.json")
     return parser.parse_args()
-
-def set_zero_for_stages(selected_stages=None):
-    """
-    Set the current position of all (or selected) stages as their new zero offset in xps_hardware.json.
-    """
-    import json
-    from newportxpslib.xps_config import CONFIG, load_full_config
-    from newportxps import NewportXPS
-
-    load_full_config()
-    stages = selected_stages or CONFIG["STAGES"]
-
-    print(f"🔌 Connecting to XPS at {CONFIG['XPS_IP']} to set zero offset(s)...")
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
-
-    zero_offsets = {}
-    for stage in stages:
-        pos = xps.get_stage_position(stage)
-        print(f"  {stage}: Current position {pos:.6f} set as new zero.")
-        zero_offsets[stage] = pos
-
-    # Load and update hardware config
-    hwfile = "config/xps_hardware.json"
-    with open(hwfile, "r") as f:
-        hw = json.load(f)
-    hw["zero_offsets"] = hw.get("zero_offsets", {})
-    hw["zero_offsets"].update(zero_offsets)
-    with open(hwfile, "w") as f:
-        json.dump(hw, f, indent=4)
-    print(f"✅ Zero offsets updated in {hwfile}.")
-
-    try:
-        xps.ftpconn.close()
-    except Exception:
-        pass
 
 
 def main():
+    """
+    Main CLI dispatch logic for Newport XPS control.
+    All actual hardware and config logic lives in the imported modules.
+    """
     args = parse_args()
 
     try:
-        # Show format help if requested
+        # 1. Print format guide and exit
         if args.format_guide:
             print_motion_format()
             return
 
+        # 2. Load config and set up user credentials
         load_user_credentials()
-        config = load_full_config()
+        config = load_full_config(verbose=True)
 
-        # ---- Handle active stages selection ----
-        if args.stages:
-            stage_list = []
-            if all(s.strip().isdigit() for s in args.stages.split(',')):
-                # By index (1-based)
-                indices = [int(s.strip())-1 for s in args.stages.split(',')]
-                for i in indices:
-                    if i < 0 or i >= len(CONFIG["STAGES"]):
-                        raise ValueError(f"Stage index {i+1} out of range.")
-                    stage_list.append(CONFIG["STAGES"][i])
-            else:
-                # By name
-                for s in args.stages.split(','):
-                    s = s.strip()
-                    if s not in CONFIG["STAGES"]:
-                        raise ValueError(f"Stage name '{s}' not found.")
-                    stage_list.append(s)
-            set_active_stages(stage_list)
-        else:
-            set_active_stages(CONFIG["STAGES"])
-        # ---- End active stages selection ----
+        # 3. Handle active stages selection (by CLI, or all)
+        stage_list = parse_stages_arg(args.stages)
+        set_active_stages(stage_list)
 
+        # 4. Option: Set zero offset by current position, then exit
         if args.set_zero:
-            from newportxpslib.xps_config import get_active_stages
-            set_zero_for_stages(get_active_stages())
+            set_zero_for_stages(stage_list)
             return
 
-
-        # Handle --get-positions
+        # 5. Option: Print positions of selected stages, then exit
         if args.get_positions:
-            positions = get_positions()
+            positions = get_positions(stages=stage_list)
             print("Current positions of selected stages:")
             for stage, pos in positions.items():
                 if pos is not None:
@@ -142,18 +102,18 @@ def main():
                     print(f"  {stage}: ERROR (could not read)")
             return
 
-        # Connect to the XPS
+        # 6. Connect to XPS controller
         print(f"🔌 Attempting connection to XPS at {CONFIG['XPS_IP']}...")
         try:
             xps = NewportXPS(CONFIG["XPS_IP"], 
-                username=CONFIG["USERNAME"], 
-                password=CONFIG["PASSWORD"])
+                        username=CONFIG["USERNAME"], 
+                        password=CONFIG["PASSWORD"])
             print("✅ Connected to XPS successfully!\n")
         except Exception as e:
             print(f"❌ Connection failed: {e}")
             return
 
-        # Run selected one-time actions
+        # 7. Backup or generate config and exit
         if args.backup:
             backup_xps_config(xps)
             return
@@ -162,59 +122,39 @@ def main():
             generate_config(xps)
             return
 
-        # Load configuration (IP, credentials, stages, motion tolerances)
-        #config = load_full_config()
-
-        # Save status report to file for inspection
+        # 8. Save status for inspection
         save_status_report_to_file(xps)
 
-        # Initialize and prepare motion groups
-        #initialize_groups(xps)
-        
-        # Forced group setup or reset/homing gets highest priority
+        # 9. Forced homing/setup if requested (and exit if only homing)
         if args.home:
             initialize_groups(xps, verbose=args.verbose)
             home_groups(xps, force_home=True, verbose=args.verbose)
-            enable_groups(xps, verbose=args.verbose)
             print("🏁 Homing completed. Exiting as requested by --home.")
             return
         
-        #enable_groups(xps)
-
-        # Reset positions if requested
+        # 10. If reset, reset positions (after setup)
         if args.reset:
             initialize_groups(xps, verbose=args.verbose)
             home_groups(xps, force_home=False, verbose=args.verbose)
-            enable_groups(xps, verbose=args.verbose)
             reset_stages(xps, verbose=args.verbose)
-            # Do NOT return; continue to execute positions after reset
 
-        # --------- SUPER FAST MOTION LAUNCH -----------
-        if args.skip_prep:
+        # 11. Fast path: skip repeated group prep if everything ready
+        if not args.reset and all_groups_ready_and_enabled(xps):
             if args.verbose:
-                print("⚡ Skipping ALL motion preparation! (You requested --skip-prep)")
-            # You might want to warn the user if the move fails due to a group state problem!
+                print("🚀 All groups referenced and enabled. Skipping init/home/enable steps.")
         else:
-            if not args.reset and all_groups_ready_and_enabled(xps):
-                if args.verbose:
-                    print("🚀 All groups referenced and enabled. Skipping init/home/enable steps.")
-            else:
-                initialize_groups(xps, verbose=args.verbose)
-                home_groups(xps, force_home=False, verbose=args.verbose)
-                enable_groups(xps, verbose=args.verbose)
-        # ----------------------------------------------
+            initialize_groups(xps, verbose=args.verbose)
+            home_groups(xps, force_home=False, verbose=args.verbose)
 
-
-        # ---- ACTIVE STAGES: from here on, only use get_active_stages() ----
+        # 12. Load positions from file 
         active_stages = get_active_stages()
+        combos = load_position_combinations(args.file, active_stages)
 
-        # Load position configurations from file (MUST MATCH number of active stages)
-        combos = load_position_combinations(args.file, config["STAGES"])
         if not combos:
             print("❌ No valid combinations found in motion file.")
             return
 
-        # Execute configurations
+        # 13. Execute moves (loop or single pass)
         if args.loop:
             print("🔁 Looping through motion configurations (Ctrl+C to stop)...\n")
             try:
@@ -237,114 +177,6 @@ def main():
         print(f"   {e}")
         print("💡 This might be due to sudden power loss or controller disconnection.")
         print("🧹 Cleaning up and exiting...")
-
-# ---- Convenience for Python API/interactive use ----
-def move_motors(*positions, skip_prep=False, verbose=False):
-    """
-    Moves Newport XPS motors to the given absolute positions (in active stages order).
-
-    Arguments:
-        positions: list of float values, one per configured stage.
-    """
-    from newportxpslib.xps_config import load_full_config, CONFIG, get_active_stages
-    from newportxpslib.xps_motion import (
-        initialize_groups, home_groups, enable_groups,
-        wait_until_reached, move_stage_with_offset
-    )
-
-    # Load config and connect to XPS
-    load_user_credentials()
-    config = load_full_config()
-    stages = get_active_stages()
-
-    if len(positions) != len(config["STAGES"]):
-        raise ValueError(f"Expected {len(stages)} positions, got {len(positions)}.")
-
-    print(f"🔌 Connecting to XPS at {CONFIG['XPS_IP']}...")
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
-    print("✅ Connected.")
-
-    if skip_prep:
-        if verbose:
-            print("⚡ Skipping ALL motion preparation! (skip_prep=True)")
-    else:
-        if all_groups_ready_and_enabled(xps):
-            if verbose:
-                print("🚀 All groups referenced and enabled. Skipping init/home/enable steps.")
-        else:
-            initialize_groups(xps, verbose=verbose)
-            home_groups(xps, force_home=False, verbose=verbose)
-            enable_groups(xps, verbose=verbose)
-
-    print(f"➡ Moving to: {positions}")
-    for stage, pos in zip(stages, positions):
-        try:
-            move_stage_with_offset(xps, stage, pos)
-        except Exception as e:
-            print(f"❌ Error moving {stage}: {e}")
-
-    reached = wait_until_reached(xps, positions)
-    if reached:
-        print("✅ Reached all target positions.")
-    else:
-        print("⚠️ Timed out waiting for stages to reach target.")
-
-    try:
-        xps.ftpconn.close()
-    except Exception:
-        pass
-
-
-def get_positions():
-    """
-    Returns a dictionary of current stage positions.
-    Format: { "stage_name": position }
-    """
-    from newportxpslib.xps_config import load_full_config, CONFIG, get_active_stages
-    from newportxpslib.xps_motion import get_stage_position_with_offset
-
-    load_user_credentials()
-    config = load_full_config()
-
-    from newportxps import NewportXPS
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
-    stages = get_active_stages()
-    positions = {}
-
-    for stage in stages:
-        try:
-            pos = get_stage_position_with_offset(xps, stage)
-            positions[stage] = pos
-        except Exception as e:
-            print(f"❌ Failed to get position of {stage}: {e}")
-            positions[stage] = None
-
-    try:
-        xps.ftpconn.close()
-    except Exception:
-        pass
-
-    return positions
-
-
-def get_status():
-    """
-    Returns the full status report string from the XPS system.
-    """
-    from newportxpslib.xps_config import load_user_credentials, CONFIG
-    from newportxps import NewportXPS
-
-    load_user_credentials()
-
-    xps = NewportXPS(CONFIG["XPS_IP"], username=CONFIG["USERNAME"], password=CONFIG["PASSWORD"])
-    report = xps.status_report()
-
-    try:
-        xps.ftpconn.close()
-    except Exception:
-        pass
-
-    return report
 
 # Required to run from command line
 if __name__ == "__main__":
