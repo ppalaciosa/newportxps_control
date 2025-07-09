@@ -5,6 +5,7 @@ This library provides a command-line tool and programmatic interface for control
 - **Supports:** Multi-axis motion, calibration, automation, and safe group control.
 - **CLI:** User-friendly for routine operation and calibration.
 - **API:** Ready for scripting, Jupyter, or integration with other projects.
+- **Session API:** For advanced workflows, persistent connections, and interactive scripts.
 
 ---
 
@@ -19,9 +20,10 @@ project_root/
 ├── motion.txt                       # Example motion sequence file
 ├── newportxpslib/
 │   ├── __init__.py
-│   ├── controller_interface.py      # API helpers for scripting
-│   ├── xps_config.py                # Config handling
-│   ├── xps_motion.py                # Stage/group utilities
+│   ├── controller_interface.py      # Procedural API: move_motors, get_positions, etc.
+│   ├── xps_session.py               # Session API: persistent XPS connection, multiple moves per session
+│   ├── xps_config.py                # Config & credential loading, hardware JSON logic
+│   ├── xps_motion.py                # Core XPS group/stage helpers (init, home, move, wait, kill, etc.)
 │   └── utils.py                     # CLI and API helpers (stage parsing, zero setting)
 ├── README.md
 ```
@@ -57,7 +59,7 @@ This queries the XPS and writes `config/xps_hardware.json`.
 
 ---
 
-## **CLI Usage**
+## 🖥️ CLI Usage
 
 Run all commands from your project root.
 
@@ -145,23 +147,50 @@ print(positions)  # {'SP1.Pos1': 10.0, 'SP3.Pos3': 90.0}
 
 ---
 
+
+## 🎯 Zero Offset: What is it?
+
+- After homing, the physical zero might not be exactly 0.0.
+- Use `--set-zero` **or** `utils.set_zero_for_stages()` to define *your* logical zero wherever you want (e.g., at a calibration marker).
+- The library will always handle the offset so you command moves and read positions **relative to your zero**.
+
+*Idempotent:* Running set‑zero twice at same position does **not** drift.
+
 ### **Set user zero offset from Python:**
 
 ```python
 from newportxpslib.utils import set_zero_for_stages
 set_zero_for_stages(['SP1.Pos1', 'SP3.Pos3'])
 ```
----
-
-## **Zero Offset: What is it?**
-
-- After homing, the physical zero might not be exactly 0.0.
-- Use `--set-zero` to define *your* logical zero wherever you want (e.g., at a calibration marker).
-- The library will always handle the offset so you command moves and read positions **relative to your zero**.
 
 ---
 
-## **Tips and Best Practices**
+## ⚙️ Procedural API Example
+
+```python
+from newportxpslib.controller_interface import move_motors, get_positions
+
+move_motors(10, 90, stages=[1, 3], skip_prep=True)  # fast single call
+print(get_positions(stages=[1, 3]))
+```
+
+---
+
+## 🔄 Session API Example
+
+```python
+from newportxpslib.xps_session import XPSMotionSession
+
+sess = XPSMotionSession(stages=[1,3])
+sess.prepare_groups()          # init + home once
+sess.move_motors(10, 90)
+print(sess.get_positions())
+sess.close(kill_all=True)      # Safe shutdown
+```
+
+---
+
+## 💡 Tips and Best Practices
 
 - Run `--generate-config` and `--home` after every controller reboot.
 - Calibrate zero after mechanical adjustment or reassembly.
@@ -171,13 +200,14 @@ set_zero_for_stages(['SP1.Pos1', 'SP3.Pos3'])
 ---
 
 ## 🛡️ Safety & Validation
+
 - If `xps_connection_parameters.json` is missing or incomplete → script exits safely
 - If `xps_hardware.json` is missing → instructs you to run `--generate-config`
 - If number of values in `motion.txt` mismatches number of stages → line is skipped
 
 ---
 
-## **Troubleshooting**
+## 🛠️ Troubleshooting
 
 - **XPSError: Not allowed action** — The controller or group is already enabled/homed; ignore if expected.
 - **Positions not matching commands?** — Check and (re)set zero offsets!
